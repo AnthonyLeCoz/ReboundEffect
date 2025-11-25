@@ -76,110 +76,84 @@ pondurbain_i = [0.5, 0.45, 0.05]
 CostKmBus   = 2/10 # coût par km de bus (~10km 91.06, 2$)
 CostKmTrain = 70/1000 # cout par km de train (marseille lille, 1000km, 70$)
 
+import numpy as np
+
+# constants unchanged …
+
 def savCost(distance):
-    """Coût de SAV pour l'entreprise"""
-    return savMax*(1-np.exp(-3*distance/dlife))
+    return savMax * (1 - np.exp(-3 * distance / dlife))
 
 def maintenance(distance):
-    cost  = 150*int(distance/10000) # revision
-    cost += 200*int(distance/25000) # pneu
-    cost += 150*int(distance/20000) # frein
-    cost += 300*int(distance/50000) # Amortisseur
-    cost += 40*int(distance/5000)   # Accastillage
+    cost  = 150 * int(distance/10000)
+    cost += 200 * int(distance/25000)
+    cost += 150 * int(distance/20000)
+    cost += 300 * int(distance/50000)
+    cost += 40  * int(distance/5000)
     return cost
 
 def modele_ingénerie(x):
-    """Modèle d'ingénérie. Return [SR] : [rendement (kW/km), dmax (km)]"""
     vmax, autonomie, mass = x
-    # Le rendement dépend de vmax et de la masse. plus autoomie grande, moins cest efficace
-    eff = eff_i/(np.exp(-np.abs(-0.8*(vmax-vmax_optimal)/vmax_optimal))*np.exp(-np.abs(-0.3*(mass-mass_optimal)/mass_optimal))*np.exp(min(0, -np.abs(-0.5*(autonomie/autonomie_optimal-1)))))
+    eff = eff_i/(np.exp(-np.abs(-0.8*(vmax-vmax_optimal)/vmax_optimal))
+                 * np.exp(-np.abs(-0.3*(mass-mass_optimal)/mass_optimal))
+                 * np.exp(min(0, -np.abs(-0.5*(autonomie/autonomie_optimal-1)))))
     dmax = autonomie/eff
-    SR = [eff, dmax]
-    return [SR]
+    return [[eff, dmax]]
 
 def benefice_economique(Q, p, D):
-    """Modèle de bénéfice économique. Renvoie le bénéfice"""
     CA = Q*p
     Davg = D/Q
     prodCost = Q*prodCost_i + savCost(Davg)*Q
     return [CA - prodCost]
 
 def impact_voiture(Q, D, SR):
-    """Impact de la voiture. On considère que le GES pour simplifier"""
     eff = SR[0]
     kwh = eff*D
-    ges = GESkWh*kwh + GESprod*Q
-    return [ges]
+    return [GESkWh*kwh + GESprod*Q]
 
 def impact_autre_transports(EURr, Dr):
-    """Impact des autre transport avec l'argent dépense et la distance parcourue (bus et train)"""
     return [GESkmAutreMobilite[0]*Dr[0] + GESkmAutreMobilite[1]*Dr[1]]
 
 def impact_redirection_dépense(EUR):
-    """Impact de la redirection des dépenses dans d'autre biens"""
-    return [EUR*GESautreDepenseParEUR]
+    return [EUR * GESautreDepenseParEUR]
 
 def prix_efficace(p, loi):
-    """Renvoie le prix efficace après subvention"""
     return [p - loi[1]]
 
 def satisfaction_pop(B, PA, peff, SR, loi, pond):
-    """Renvoie la satisfaction d'une population"""
-    # ["Prix de revient ($/km)", "km en ville", "km hors ville"]
-    # ["Rendement (kW/km)", "Distance max (km)"]
-    # ["Prix energie ($/kW)", "Subvention ($/voiture)"]
-    # On commence par transcrire les services rendu vers les besoins
-    def fb(SR):
-        eff, dmax = SR
-        pkm = eff*loi[0]
-        kmville = dmax
-        kmautre = dmax*0.8 # more consumption
-        return [pkm, kmville, kmautre]
-    
+    eff, dmax = SR
+    pkm = eff*loi[0]
+    kmville = dmax
+    kmautre = dmax*0.8
+
+    fb = np.array([pkm, kmville, kmautre])
+
     def dsat(a, b):
-        """Distance saturée entre a et b: =1 si a<b"""
-        return np.where(a < b, np.ones_like(a), np.exp(-3*(a-b)/a))
-    
+        return np.where(a < b, 1, np.exp(-3*(a-b)/a))
+
     def d(a, b):
-        """Calcule la distance entre les besoins et leur réalisation"""
         return np.array([dsat(b[0], a[0])*pond[0],
                          dsat(a[1], b[1])*pond[1],
                          dsat(a[2], b[2])*pond[2]])
-    
-    S = d(B, fb(SR))*dsat(peff, PA)
 
+    S = d(B, fb) * dsat(peff, PA)
     return [S]
 
-
-def distance_avec_satisfaction(S, alpha, B, pop):
-    """Calcule la distance parcourue en fonction de la satisfaction
-    pop = 0: urbain,
-    pop = 1: rural """
-
-    return [alpha[pop]*B[1+pop]*np.linalg.norm(S)*dlife]
+def distance_avec_satisfaction(S, B, pop):
+    return [B[1+pop] * np.linalg.norm(S) * dlife]
 
 def distance_avec_report_modal(R, B):
-    """Calcule la distance parcourue en fonction de la satisfaction"""
-    # ["Prix de revient ($/km)", "km en ville", "km hors ville"]
-    # ["$ en bus", "$ en train"]
-    Dr = np.array([B[1]*np.linalg.norm(R)*dlife, B[2]*np.linalg.norm(R)*dlife])
-    return [Dr]
+    return [np.array([B[1]*np.linalg.norm(R)*dlife,
+                      B[2]*np.linalg.norm(R)*dlife])]
 
 def cout_report_modal(Dr):
-    """Calcule le cout du report modal avec la distance"""
     return [np.array([Dr[0]*CostKmBus, Dr[1]*CostKmTrain])]
 
-def bien_etre(CostV, CostR, alpha, pop):
-    """Calcule le bien être"""
-    return [alpha[pop]**2/(CostV + CostR)]
+def bien_etre(CostV, CostR, pop, S):
+    return [(Pi_rural*pop+Pi_urbain*(1-pop))* np.linalg.norm(S) / (CostV + CostR)]
 
 def cout_user_voiture(Q, peff, D, loi, SR):
-    """Coût d'utilisation de la voiture pour le consomateur"""
-    # ["Rendement (kW/km)", "Distance max (km)"]
-    # ["Prix energie ($/kW)", "Subvention ($/voiture)"]
     kmCost = loi[0]*SR[0]
     return [Q*peff + maintenance(D/Q)*Q + kmCost*D, D/Q]
 
 def autre_depenses(ptransport):
-    """Calcule l'argent mis dans les autre dépenses que le transport"""
     return [ptransport_i - ptransport]
