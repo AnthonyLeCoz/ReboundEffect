@@ -139,17 +139,17 @@ def satisfaction_pop(B, PA, peff, SR, loi, pond):
     return [S]
 
 def distance_avec_satisfaction(S, B, pop):
-    return [B[1+pop] * np.linalg.norm(S) * dlife]
+    return [B[1+pop] * S[1+pop] * dlife]
 
 def distance_avec_report_modal(R, B):
-    return [np.array([B[1]*np.linalg.norm(R)*dlife,
-                      B[2]*np.linalg.norm(R)*dlife])]
+    return [np.array([B[1]*R*dlife,
+                      B[2]*R*dlife])]
 
 def cout_report_modal(Dr):
     return [np.array([Dr[0]*CostKmBus, Dr[1]*CostKmTrain])]
 
 def bien_etre(CostV, CostR, pop, S):
-    return [(Pi_rural*pop+Pi_urbain*(1-pop))* np.linalg.norm(S) / (CostV + CostR)]
+    return [(Pi_rural*pop+Pi_urbain*(1-pop))*S[1+pop] / (CostV + CostR)]
 
 def cout_user_voiture(Q, peff, D, loi, SR):
     kmCost = loi[0]*SR[0]
